@@ -256,7 +256,7 @@ static ssize_t info_show(struct kobject *kobj,
 {
 	return sprintf(
 		buf,
-		"Forced Fast Charge for Samsung Note 3 %s\n\n"
+		"Forced Fast Charge for Samsung Galaxy S4 %s\n\n"
 		"Fast charge mode : %s\n"
 		"Custom  AC level : %dmA/h\n"
 		"Custom USB level : %dmA/h\n"
