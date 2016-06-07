@@ -3268,9 +3268,9 @@ static struct platform_device msm_tsens_device = {
 };
 
 static struct msm_thermal_data msm_thermal_pdata = {
-#ifdef CONFIG_BRICKED_THERMAL
 	.sensor_id = 7,
 	.poll_ms = 250,
+#ifdef CONFIG_BRICKED_THERMAL
 	.shutdown_temp = 78,
 
 	.allowed_max_high = 74,
