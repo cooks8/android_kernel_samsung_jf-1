@@ -159,6 +159,8 @@ struct lvds_panel_info {
 struct msm_panel_info {
 	__u32 xres;
 	__u32 yres;
+	__u32 height;
+	__u32 width;
 	__u32 bpp;
 	__u32 mode2_xres;
 	__u32 mode2_yres;
@@ -218,6 +220,7 @@ struct msm_fb_panel_data {
 struct platform_device *msm_fb_device_alloc(struct msm_fb_panel_data *pdata,
 						u32 type, u32 id);
 int panel_next_on(struct platform_device *pdev);
+int panel_next_init(struct platform_device *pdev);
 int panel_next_off(struct platform_device *pdev);
 int panel_next_fps_level_change(struct platform_device *pdev,
 					u32 fps_level);

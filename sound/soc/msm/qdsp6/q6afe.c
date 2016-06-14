@@ -51,7 +51,7 @@ bool afe_close_done[2] = {true, true};
 static int32_t afe_callback(struct apr_client_data *data, void *priv)
 {
 	if (data->opcode == RESET_EVENTS) {
-		pr_debug("q6afe: reset event = %d %d apr[%p]\n",
+		pr_info("q6afe: reset event = %d %d apr[%p]\n",
 			data->reset_event, data->reset_proc, this_afe.apr);
 		if (this_afe.apr) {
 			apr_reset(this_afe.apr);
@@ -1806,9 +1806,8 @@ int afe_close(int port_id)
 				__func__, pcm_afe_instance[port_id & 0x1]);
 		port_id = VIRTUAL_ID_TO_PORTID(port_id);
 		pcm_afe_instance[port_id & 0x1]--;
-		if ((!(pcm_afe_instance[port_id & 0x1] == 0 &&
-			proxy_afe_instance[port_id & 0x1] == 0)) ||
-			afe_close_done[port_id & 0x1] == true)
+		if (!(pcm_afe_instance[port_id & 0x1] == 0 &&
+			proxy_afe_instance[port_id & 0x1] == 0))
 			return 0;
 		else
 			afe_close_done[port_id & 0x1] = true;
@@ -1820,9 +1819,8 @@ int afe_close(int port_id)
 				__func__, proxy_afe_instance[port_id & 0x1]);
 		port_id = VIRTUAL_ID_TO_PORTID(port_id);
 		proxy_afe_instance[port_id & 0x1]--;
-		if ((!(pcm_afe_instance[port_id & 0x1] == 0 &&
-			proxy_afe_instance[port_id & 0x1] == 0)) ||
-			afe_close_done[port_id & 0x1] == true)
+		if (!(pcm_afe_instance[port_id & 0x1] == 0 &&
+			proxy_afe_instance[port_id & 0x1] == 0))
 			return 0;
 		else
 			afe_close_done[port_id & 0x1] = true;

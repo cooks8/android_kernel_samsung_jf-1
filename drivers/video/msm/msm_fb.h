@@ -46,6 +46,7 @@
 
 #include "msm_fb_panel.h"
 #include "mdp.h"
+#include "sec_debug_mdp.h"
 
 #define MSM_FB_DEFAULT_PAGE_SIZE 2
 #define MFD_KEY  0x11161126
@@ -215,6 +216,7 @@ struct msm_fb_data_type {
 	void *msm_fb_backup;
 	boolean panel_driver_on;
 	int vsync_sysfs_created;
+	int resume_state;
 	void *copy_splash_buf;
 	unsigned char *copy_splash_phys;
 	uint32 sec_mapped;

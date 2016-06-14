@@ -370,6 +370,90 @@ int mipi_dsi_phy_pll_config(u32 clk_rate)
 
 	return 0;
 }
+#if 0
+void mipi_dsi_configure_dividers(int fps)
+{
+	struct dsiphy_pll_divider_config *dividers;
+	u32 tmp;
+     
+	dividers = &pll_divider_config;
+   
+	if(fps == 60) {
+		tmp = MIPI_INP(MIPI_DSI_BASE + 0x20C);
+		tmp &= ~0x3f;
+		tmp |= (dividers->ref_divider_ratio- 1) & 0x3f;
+		MIPI_OUTP(MIPI_DSI_BASE + 0x20C, tmp);
+
+		tmp = MIPI_INP(MIPI_DSI_BASE + 0x22C);
+		tmp &= ~0x10;
+		MIPI_OUTP(MIPI_DSI_BASE + 0x22C, tmp);
+			
+		wmb();
+	} else if(fps == 45) {
+		tmp = MIPI_INP(MIPI_DSI_BASE + 0x20C);
+		tmp &= ~0x3f;
+		tmp |= ((dividers->ref_divider_ratio+1)- 1) & 0x3f;
+		MIPI_OUTP(MIPI_DSI_BASE + 0x20C, tmp);
+
+		tmp = MIPI_INP(MIPI_DSI_BASE + 0x22C);
+		tmp &= ~0x10;
+		MIPI_OUTP(MIPI_DSI_BASE + 0x22C, tmp);
+					
+		 wmb();
+	} else if(fps == 30) {
+		tmp = MIPI_INP(MIPI_DSI_BASE + 0x22C);
+		tmp |= 0x10;
+		MIPI_OUTP(MIPI_DSI_BASE + 0x22C, tmp);
+
+
+		tmp = MIPI_INP(MIPI_DSI_BASE + 0x20C);
+		tmp &= ~0x3f;
+		tmp |= ((dividers->ref_divider_ratio*2)- 1) & 0x3f;
+		MIPI_OUTP(MIPI_DSI_BASE + 0x20C, tmp);
+
+		wmb();
+	} else {
+		pr_info("Invalid fps value\n");
+	}
+}
+#endif
+static int current_fps = 60; 
+void mipi_dsi_configure_dividers(int fps) 
+{
+	u32 fb_divider, rate, vco;
+	u32 div_ratio = 0;
+	struct dsiphy_pll_divider_config *dividers;
+
+	dividers = &pll_divider_config;
+	
+	if(fps >= 42 && fps <= 60)
+	{
+		rate = dividers->clk_rate / 1000000; /* In Mhz */
+		
+		if (rate < 125) {
+			vco = rate * 8;
+			div_ratio = 8;
+		} else if (rate < 250) {
+			vco = rate * 4;
+			div_ratio = 4;
+		} else if (rate < 600) {
+			vco = rate * 2;
+			div_ratio = 2;
+		} else {
+			vco = rate * 1;
+			div_ratio = 1;
+		}
+
+		fb_divider = ((vco * fps * PREF_DIV_RATIO) / (27 * current_fps));
+		fb_divider = (fb_divider/2) - 1;
+		MIPI_OUTP(MIPI_DSI_BASE + 0x204, fb_divider & 0xff);
+		wmb();
+	}
+	else
+	{
+		printk("Invalid fps value\n");
+	}
+} 
 
 void mipi_dsi_configure_fb_divider(u32 fps_level)
 {
@@ -705,11 +789,11 @@ void mipi_dsi_clk_enable(void)
 	MIPI_OUTP(MIPI_DSI_BASE + 0x0200, pll_ctrl | 0x01);
 	mipi_dsi_phy_rdy_poll();
 
-	if (clk_set_rate(dsi_byte_div_clk, 1) < 0)      /* divided by 1 */
+	if (clk_set_rate(dsi_byte_div_clk, 1) < 0)	/* divided by 1 */
 		pr_err("%s: dsi_byte_div_clk - "
 			"clk_set_rate failed\n", __func__);
 	if (clk_set_rate(dsi_esc_clk, esc_byte_ratio) < 0) /* divided by esc */
-		pr_err("%s: dsi_esc_clk - "                      /* clk ratio */
+		pr_err("%s: dsi_esc_clk - "			 /* clk ratio */
 			"clk_set_rate failed\n", __func__);
 	mipi_dsi_pclk_ctrl(&dsi_pclk, 1);
 	mipi_dsi_clk_ctrl(&dsicore_clk, 1);

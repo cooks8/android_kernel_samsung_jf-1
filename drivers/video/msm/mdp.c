@@ -44,6 +44,13 @@
 #endif
 #include "mipi_dsi.h"
 
+#if defined(CONFIG_MDNIE_LITE_TUNING)
+#include "mdnie_lite_tuning.h"
+#endif
+
+/* Check if LCD was connected. */
+#include "mipi_samsung_octa.h"
+
 uint32 mdp4_extn_disp;
 u32 mdp_iommu_max_map_size;
 static struct clk *mdp_clk;
@@ -64,9 +71,7 @@ static struct res_mmu_clk mdp_sec_mmu_clks[] = {
 int mdp_rev;
 int mdp_iommu_split_domain;
 u32 mdp_max_clk = 266667000;
-u64 mdp_max_bw = 2000000000;
-u32 mdp_bw_ab_factor = MDP4_BW_AB_DEFAULT_FACTOR;
-u32 mdp_bw_ib_factor = MDP4_BW_IB_DEFAULT_FACTOR;
+u64 mdp_max_bw = 3080000000UL;
 static struct platform_device *mdp_init_pdev;
 static struct regulator *footswitch, *dsi_pll_vdda, *dsi_pll_vddio;
 static unsigned int mdp_footswitch_on;
@@ -554,10 +559,11 @@ static int mdp_lut_hw_update(struct fb_cmap *cmap)
 	c[2] = cmap->red;
 
 	if (cmap->start > MDP_HIST_LUT_SIZE || cmap->len > MDP_HIST_LUT_SIZE ||
-			(cmap->start + cmap->len > MDP_HIST_LUT_SIZE)) {
+		(cmap->start + cmap->len > MDP_HIST_LUT_SIZE)) {
 		pr_err("mdp_lut_hw_update invalid arguments\n");
 		return -EINVAL;
 	}
+
 	for (i = 0; i < cmap->len; i++) {
 		if (copy_from_user(&r, cmap->red++, sizeof(r)) ||
 		    copy_from_user(&g, cmap->green++, sizeof(g)) ||
@@ -2418,11 +2424,10 @@ void mdp4_hw_init(void)
 
 #endif
 
-static int mdp_bus_scale_restore_request(void);
-
 static int mdp_on(struct platform_device *pdev)
 {
 	int ret = 0;
+	unsigned long flag;
 	struct msm_fb_data_type *mfd;
 	int i;
 	mfd = platform_get_drvdata(pdev);
@@ -2483,10 +2488,20 @@ static int mdp_on(struct platform_device *pdev)
 		atomic_set(&vsync_cntrl.suspend, 1);
 	}
 
+	mdp4_overlay_dsi_video_start();
+
+	spin_lock_irqsave(&mdp_spin_lock, flag); 
+	outp32(MDP_INTR_CLEAR, 0xffffffff); 
+	spin_unlock_irqrestore(&mdp_spin_lock, flag); 
+
 	mdp_histogram_ctrl_all(TRUE);
 
 	if (ret == 0)
 		ret = panel_next_late_init(pdev);
+
+#if defined(CONFIG_MDNIE_LITE_TUNING)
+	is_negative_on();
+#endif
 
 	pr_debug("%s:-\n", __func__);
 
@@ -2644,26 +2659,32 @@ int mdp_bus_scale_update_request(u64 ab_p0, u64 ib_p0, u64 ab_p1, u64 ib_p1)
 	return msm_bus_scale_client_update_request
 		(mdp_bus_scale_handle, bus_index);
 }
-static int mdp_bus_scale_restore_request(void)
-{
-	pr_debug("%s: index=%d ab_p0=%llu ib_p0=%llu\n", __func__, bus_index,
-		 mdp_bus_usecases[bus_index].vectors[0].ab,
-		 mdp_bus_usecases[bus_index].vectors[0].ib);
-	pr_debug("%s: index=%d ab_p1=%llu ib_p1=%llu\n", __func__, bus_index,
-		 mdp_bus_usecases[bus_index].vectors[1].ab,
-		 mdp_bus_usecases[bus_index].vectors[1].ib);
 
-	return mdp_bus_scale_update_request
-		(mdp_bus_usecases[bus_index].vectors[0].ab,
-		 mdp_bus_usecases[bus_index].vectors[0].ib,
-		 mdp_bus_usecases[bus_index].vectors[1].ab,
-		 mdp_bus_usecases[bus_index].vectors[1].ib);
-}
-#else
-static int mdp_bus_scale_restore_request(void)
-{
-	return 0;
-}
+int mdp_bus_scale_restore_request(void) 
+{ 
+	u64 ab, ib; 
+	if (!bus_index || 
+		!mdp_bus_usecases[bus_index].vectors[0].ab) { 
+		ab = mdp_max_bw; 
+		ib = mdp_max_bw; 
+	} else { 
+		ab = mdp_bus_usecases[bus_index].vectors[0].ab; 
+		ib = mdp_bus_usecases[bus_index].vectors[0].ib; 
+	} 
+	pr_info("%s: ab=%llu ib=%llu\n", __func__, ab, ib); 
+	
+	pr_debug("%s: index=%d ab_p0=%llu ib_p0=%llu\n", __func__, bus_index,
+					 mdp_bus_usecases[bus_index].vectors[0].ab,
+					 mdp_bus_usecases[bus_index].vectors[0].ib);
+	pr_debug("%s: index=%d ab_p1=%llu ib_p1=%llu\n", __func__, bus_index,
+					 mdp_bus_usecases[bus_index].vectors[1].ab,
+					 mdp_bus_usecases[bus_index].vectors[1].ib);
+	
+	return mdp_bus_scale_update_request(ab, ib,
+		mdp_bus_usecases[bus_index].vectors[1].ab,
+		mdp_bus_usecases[bus_index].vectors[1].ib); 
+} 
+
 #endif
 DEFINE_MUTEX(mdp_clk_lock);
 int mdp_set_core_clk(u32 rate)
@@ -2746,6 +2767,12 @@ static int mdp_irq_clk_setup(struct platform_device *pdev,
 	} else {
 		regulator_enable(footswitch);
 		mdp_footswitch_on = 1;
+
+		if (mdp_rev == MDP_REV_42 && !cont_splashScreen) {
+			regulator_disable(footswitch);
+			msleep(20);
+			regulator_enable(footswitch);
+		}
 	}
 
 	mdp_clk = clk_get(&pdev->dev, "core_clk");
@@ -2825,6 +2852,7 @@ static int mdp_probe(struct platform_device *pdev)
 #if defined(CONFIG_FB_MSM_MIPI_DSI) && defined(CONFIG_FB_MSM_MDP40)
 	struct mipi_panel_info *mipi;
 #endif
+	static int contSplash_update_done;
 
 	if ((pdev->id == 0) && (pdev->num_resources > 0)) {
 		mdp_init_pdev = pdev;
@@ -2844,13 +2872,6 @@ static int mdp_probe(struct platform_device *pdev)
 			pr_err("mdp: can not get mdp irq\n");
 			return -ENOMEM;
 		}
-
-		if (mdp_pdata->mdp_max_bw)
-			mdp_max_bw = mdp_pdata->mdp_max_bw;
-		if (mdp_pdata->mdp_bw_ab_factor)
-			mdp_bw_ab_factor = mdp_pdata->mdp_bw_ab_factor;
-		if (mdp_pdata->mdp_bw_ib_factor)
-			mdp_bw_ib_factor = mdp_pdata->mdp_bw_ib_factor;
 
 		mdp_rev = mdp_pdata->mdp_rev;
 
@@ -2901,6 +2922,21 @@ static int mdp_probe(struct platform_device *pdev)
 	mfd->mdp_rev = mdp_rev;
 	mfd->vsync_init = NULL;
 
+	if (mdp_pdata) {
+		if ((get_lcd_attached()) && mdp_pdata->cont_splash_enabled) {
+			mfd->cont_splash_done = 0;
+			if (!contSplash_update_done) {
+				if (mfd->panel.type == MIPI_VIDEO_PANEL ||
+				    mfd->panel.type == LCDC_PANEL)
+					mdp_pipe_ctrl(MDP_CMD_BLOCK,
+						MDP_BLOCK_POWER_ON, FALSE);
+				mdp_clk_ctrl(1);
+				contSplash_update_done = 1;
+			}
+		} else
+			mfd->cont_splash_done = 1;
+	}
+
 	mfd->ov0_wb_buf = MDP_ALLOC(sizeof(struct mdp_buf_type));
 	mfd->ov1_wb_buf = MDP_ALLOC(sizeof(struct mdp_buf_type));
 	memset((void *)mfd->ov0_wb_buf, 0, sizeof(struct mdp_buf_type));
@@ -2929,7 +2965,7 @@ static int mdp_probe(struct platform_device *pdev)
 		rc = -ENOMEM;
 		goto mdp_probe_err;
 	}
-
+#if 0
 	if (mdp_pdata) {
 		if (mdp_pdata->cont_splash_enabled &&
 				 mfd->panel_info.pdest == DISPLAY_1) {
@@ -2977,7 +3013,7 @@ static int mdp_probe(struct platform_device *pdev)
 
 		mfd->cont_splash_done = (1 - mdp_pdata->cont_splash_enabled);
 	}
-
+#endif
 	/* data chain */
 	pdata = msm_fb_dev->dev.platform_data;
 	pdata->on = mdp_on;
@@ -3276,10 +3312,11 @@ static int mdp_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	/* req bus bandwidth immediately */
-	mdp_bus_scale_update_request(mdp_max_bw,
-				     mdp_max_bw,
-				     mdp_max_bw,
-				     mdp_max_bw);
+	if (!(mfd->cont_splash_done))
+		mdp_bus_scale_update_request(mdp_max_bw,
+						mdp_max_bw,
+						mdp_max_bw,
+						mdp_max_bw);
 #endif
 
 	/* set driver data */
@@ -3318,6 +3355,10 @@ static int mdp_probe(struct platform_device *pdev)
 			mfd->vsync_sysfs_created = 1;
 		}
 	}
+
+#if defined(CONFIG_FB_MSM_CAMERA_CSC)
+	mdp4_reg_csc_fs(mfd->fbi->dev);
+#endif
 	return 0;
 
       mdp_probe_err:
